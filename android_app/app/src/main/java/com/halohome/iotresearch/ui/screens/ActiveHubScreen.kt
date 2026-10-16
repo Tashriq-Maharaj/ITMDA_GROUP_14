@@ -24,6 +24,12 @@ import com.halohome.iotresearch.data.api.NetworkModule
 import com.halohome.iotresearch.data.models.AuditReportDto
 import com.halohome.iotresearch.ui.theme.*
 
+/**
+ * Active Smart Home Hub Screen.
+ * Operational dashboard displayed once gateway commissioning has been deployed.
+ * Shows live room telemetry (~24.8°C), interactive device toggles, biometric step-up
+ * authentication enforcement, and direct research report download.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActiveHubScreen(

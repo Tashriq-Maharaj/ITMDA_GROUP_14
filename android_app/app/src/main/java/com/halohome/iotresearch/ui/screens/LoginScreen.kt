@@ -24,6 +24,11 @@ import com.halohome.iotresearch.telemetry.MobileTelemetryManager
 import com.halohome.iotresearch.ui.theme.*
 import kotlinx.coroutines.launch
 
+/**
+ * Participant Login Screen.
+ * Authenticates returning participants and includes a server URL configuration dialog
+ * in the top app bar for switching between emulator, LAN, and cloud endpoints.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(

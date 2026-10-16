@@ -1,3 +1,9 @@
+"""
+Automated Research Reporting Pipeline.
+Extracts participant data, commissioning sessions, and interaction telemetry
+from SQLite and formats them into a publication-ready Excel spreadsheet.
+"""
+
 import os
 import sys
 import json
@@ -16,6 +22,7 @@ DEFAULT_EXCEL_OUTPUT = os.path.join(RESULTS_DIR, "study_results.xlsx")
 
 
 def get_local_tz_info():
+    """Detects local machine timezone and formats UTC offset for reporting."""
     now_local = datetime.now().astimezone()
     tz_name = now_local.tzname() or "Local Time"
     utc_offset = now_local.strftime("%z")
@@ -24,6 +31,7 @@ def get_local_tz_info():
 
 
 def format_duration(seconds):
+    """Converts raw seconds into a formatted MM:SS string."""
     if pd.isna(seconds) or seconds is None:
         return "N/A"
     try:
@@ -36,6 +44,7 @@ def format_duration(seconds):
 
 
 def parse_and_convert_dates(series, local_tz):
+    """Converts UTC timestamps into both localized string and standardized UTC string."""
     dt_utc = pd.to_datetime(series, utc=True, errors="coerce")
     dt_local = dt_utc.dt.tz_convert(local_tz)
     local_str = dt_local.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("N/A")
@@ -44,6 +53,13 @@ def parse_and_convert_dates(series, local_tz):
 
 
 def build_kpi_summary(sessions_df, users_df):
+    """
+    Computes aggregate metrics across the participant cohort:
+    - Total participants, completion vs abandonment rates
+    - Average security score vs average convenience index
+    - Grade distributions (A, B, C, D)
+    - Mean task duration, toggle adjustments, and warning reversal nudges
+    """
     metrics = []
     total_u = len(users_df)
     comp = sessions_df[sessions_df["status"] == "commissioned"]
@@ -61,7 +77,7 @@ def build_kpi_summary(sessions_df, users_df):
     metrics.append(("Mean Security Health Score (0-100)", f"{avg_sec:.1f}%"))
     metrics.append(("Mean Usability / Convenience Index (0-100)", f"{avg_use:.1f}%"))
 
-    # Security Grade Distribution
+    # Security grade breakdown
     grade_a = len(comp[comp["security_grade"] == "A"])
     grade_b = len(comp[comp["security_grade"] == "B"])
     grade_c = len(comp[comp["security_grade"] == "C"])
@@ -70,7 +86,7 @@ def build_kpi_summary(sessions_df, users_df):
     metrics.append(("Grade B (Balanced Consumer)", f"{grade_b} ({grade_b/len(comp)*100:.1f}%)" if len(comp) else "0"))
     metrics.append(("Grade C/D (High Vulnerability / Low Security)", f"{grade_c+grade_d} ({(grade_c+grade_d)/len(comp)*100:.1f}%)" if len(comp) else "0"))
 
-    # Duration & Interactions
+    # Task duration and interaction metrics
     avg_dur = comp["total_time_seconds"].mean() if not comp.empty else 0.0
     avg_toggles = comp["toggle_count"].mean() if not comp.empty else 0.0
     avg_reversals = comp["warning_reversals"].mean() if not comp.empty else 0.0
@@ -83,6 +99,7 @@ def build_kpi_summary(sessions_df, users_df):
 
 
 def load_database_data(db_path, local_tz, offset_label):
+    """Connects to SQLite, reads data tables into DataFrames, and converts timestamps."""
     if not os.path.exists(db_path):
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -116,28 +133,27 @@ def load_database_data(db_path, local_tz, offset_label):
         sessions_df["completed_local"] = s_end_loc
         sessions_df["duration_formatted"] = sessions_df["total_time_seconds"].apply(format_duration)
 
+    if not logs_df.empty:
+        l_loc, l_utc = parse_and_convert_dates(logs_df["timestamp"], local_tz)
+        logs_df["timestamp_local"] = l_loc
+        logs_df["timestamp_utc"] = l_utc
+
     return users_df, sessions_df, logs_df, kpi_df
 
 
 def export_database_to_excel(output_path=None):
+    """Generates the multi-tab formatted Excel report."""
     os.makedirs(RESULTS_DIR, exist_ok=True)
     local_tz, tz_name, offset_label = get_local_tz_info()
     target_file = output_path or DEFAULT_EXCEL_OUTPUT
 
     users_df, sessions_df, logs_df, kpi_df = load_database_data(DB_PATH, local_tz, offset_label)
 
-    # Style workbook with openpyxl
     wb = openpyxl.Workbook()
 
-    # 1. Executive Summary Sheet
-    ws_exec = wb.active
-    ws_exec.title = "Executive_Summary"
-    ws_exec.views.sheetView[0].showGridLines = True
-
-    # Styling colors
+    # Styling constants
     NAVY_DARK = "1E293B"
     ROYAL_BLUE = "2563EB"
-    SLATE_LIGHT = "F1F5F9"
     WHITE = "FFFFFF"
     BORDER_COLOR = "CBD5E1"
 
@@ -148,7 +164,14 @@ def export_database_to_excel(output_path=None):
         bottom=Side(style="thin", color=BORDER_COLOR)
     )
 
-    # Title block
+    # -----------------------------------------------------------------------
+    # 1. Executive Summary Sheet
+    # -----------------------------------------------------------------------
+    ws_exec = wb.active
+    ws_exec.title = "Executive_Summary"
+    ws_exec.views.sheetView[0].showGridLines = True
+
+    # Title banner
     ws_exec.merge_cells("B2:D2")
     ws_exec["B2"] = "IoT Usability vs. Security Trade-Off Research Analytics"
     ws_exec["B2"].font = Font(name="Segoe UI", size=14, bold=True, color=WHITE)
@@ -163,7 +186,7 @@ def export_database_to_excel(output_path=None):
     ws_exec["B3"].alignment = Alignment(horizontal="center", vertical="center")
     ws_exec.row_dimensions[3].height = 22
 
-    # KPI Table Header
+    # KPI table header
     ws_exec["B5"] = "Usability vs Security Metric"
     ws_exec["B5"].font = Font(name="Segoe UI", size=10, bold=True, color=WHITE)
     ws_exec["B5"].fill = PatternFill(start_color=NAVY_DARK, end_color=NAVY_DARK, fill_type="solid")
@@ -177,7 +200,7 @@ def export_database_to_excel(output_path=None):
     ws_exec["C5"].border = thin_border
     ws_exec["D5"].border = thin_border
 
-    # KPI Data Rows
+    # KPI data rows
     row_idx = 6
     for _, row in kpi_df.iterrows():
         ws_exec.row_dimensions[row_idx].height = 22
@@ -197,7 +220,9 @@ def export_database_to_excel(output_path=None):
     ws_exec.column_dimensions["C"].width = 25
     ws_exec.column_dimensions["D"].width = 25
 
+    # -----------------------------------------------------------------------
     # 2. Participant Audits Sheet
+    # -----------------------------------------------------------------------
     ws_audits = wb.create_sheet(title="Participant_Audits")
     ws_audits.views.sheetView[0].showGridLines = True
     audit_cols = [
@@ -227,7 +252,9 @@ def export_database_to_excel(output_path=None):
                 s.get("warning_reversals", 0),
             ])
 
+    # -----------------------------------------------------------------------
     # 3. Setting Choices Breakdown Sheet
+    # -----------------------------------------------------------------------
     ws_choices = wb.create_sheet(title="Setting_Choices")
     ws_choices.views.sheetView[0].showGridLines = True
     setting_cols = [
@@ -255,12 +282,38 @@ def export_database_to_excel(output_path=None):
                 s.get("action_auth"),
             ])
 
-    # Auto-width for sheets
-    for ws in [ws_audits, ws_choices]:
+    # -----------------------------------------------------------------------
+    # 4. Granular Interaction Telemetry Logs Sheet
+    # -----------------------------------------------------------------------
+    ws_logs = wb.create_sheet(title="Interaction_Logs")
+    ws_logs.views.sheetView[0].showGridLines = True
+    log_cols = ["Log ID", "Participant ID", "Event Type", f"Timestamp ({tz_name})", "Event Details"]
+    ws_logs.append(log_cols)
+    ws_logs.row_dimensions[1].height = 26
+    for cell in ws_logs[1]:
+        cell.font = Font(name="Segoe UI", size=10, bold=True, color=WHITE)
+        cell.fill = PatternFill(start_color=NAVY_DARK, end_color=NAVY_DARK, fill_type="solid")
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    if not logs_df.empty:
+        for _, log in logs_df.iterrows():
+            details_raw = log.get("event_details")
+            details_str = json.dumps(details_raw) if isinstance(details_raw, (dict, list)) else str(details_raw or "")
+            ws_logs.append([
+                log.get("id"),
+                f"P-{log.get('user_id', 1):03d}",
+                log.get("event_type"),
+                log.get("timestamp_local", "N/A"),
+                details_str,
+            ])
+
+    # Auto-fit column widths across all data sheets
+    for ws in [ws_audits, ws_choices, ws_logs]:
         for col in ws.columns:
             max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = get_column_letter(col[0].column)
-            ws.column_dimensions[col_letter].width = max(max_len + 3, 14)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 14), 60)
 
     wb.save(target_file)
     print(f"Report successfully saved to: {target_file}")

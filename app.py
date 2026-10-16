@@ -1,3 +1,9 @@
+"""
+HaloGuard: IoT Gateway Usability vs Security Research REST API.
+Handles participant authentication, live trade-off calculations,
+session telemetry logging, and on-demand Excel report generation.
+"""
+
 import os
 import hashlib
 from datetime import datetime, timezone, timedelta
@@ -5,6 +11,7 @@ from flask import Flask, request, jsonify, send_file
 from models import db, User, CommissionSession, InteractionLog, utc_now
 
 app = Flask(__name__)
+# Secret key used for session signing and email salt hashing
 app.secret_key = os.environ.get("SECRET_KEY", "iot-security-usability-secret-2026")
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -17,14 +24,16 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+# Sessions inactive for more than 2 minutes without a heartbeat are marked abandoned
 ABANDONMENT_TIMEOUT_MINUTES = 2
 
 
 # ---------------------------------------------------------------------------
-# CORS HEADERS
+# CORS & PRE-FLIGHT HEADERS
 # ---------------------------------------------------------------------------
 @app.after_request
 def add_cors_headers(response):
+    """Allows cross-origin requests from mobile clients and testing tools."""
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
@@ -33,16 +42,22 @@ def add_cors_headers(response):
 
 @app.route("/api/<path:dummy>", methods=["OPTIONS"])
 def api_options(dummy):
+    """Responds to browser and client pre-flight CORS checks."""
     return "", 204
 
 
 def hash_identifier(identifier: str) -> str:
+    """
+    Hashes an email address with a server salt using SHA-256.
+    Ensures zero plaintext PII is persisted in the database.
+    """
     normalized = identifier.strip().lower()
     salt = app.secret_key.encode("utf-8")
     return hashlib.sha256(salt + normalized.encode("utf-8")).hexdigest()
 
 
 def ensure_utc(dt):
+    """Guarantees a datetime object is timezone-aware and set to UTC."""
     if dt is None:
         return None
     if dt.tzinfo is None:
@@ -51,6 +66,10 @@ def ensure_utc(dt):
 
 
 def sweep_abandoned_sessions(timeout_minutes=ABANDONMENT_TIMEOUT_MINUTES):
+    """
+    Scans in-progress sessions and marks them abandoned if no heartbeat
+    has been received within the timeout window. Calculates final dwell time.
+    """
     now = utc_now()
     threshold = now - timedelta(minutes=timeout_minutes)
 
@@ -84,6 +103,10 @@ def sweep_abandoned_sessions(timeout_minutes=ABANDONMENT_TIMEOUT_MINUTES):
 
 
 def get_current_user():
+    """
+    Extracts and validates Bearer token from the HTTP Authorization header.
+    Returns (user, session) tuple if valid, or (None, None) if unauthenticated.
+    """
     auth_header = request.headers.get("Authorization", "").strip()
     if auth_header.startswith("Bearer "):
         token = auth_header.split(" ", 1)[1].strip()
@@ -94,45 +117,58 @@ def get_current_user():
 
 
 # ---------------------------------------------------------------------------
-# SCORING ENGINE
+# SCORING ENGINE & TRADE-OFF MATRIX
 # ---------------------------------------------------------------------------
+# Each setting choice maps to: (Security Points, Usability Points)
+# Security sums to 100 max, Usability sums to 100 max.
 WEIGHTS = {
+    # 1. Device Authentication
     "auth_credential": {
-        "default_pin": (2, 15),
-        "pin_6": (10, 12),
-        "passphrase_biometric": (15, 6),
+        "default_pin": (2, 15),           # High convenience, vulnerable to brute-force
+        "pin_6": (10, 12),                # Standard consumer pin
+        "passphrase_biometric": (15, 6),  # Strongest security, highest user friction
     },
+    # 2. Transport Protocol & Encryption
     "transport_crypto": {
-        "mqtt_plain_1883": (2, 20),
-        "tls_8883": (16, 16),
-        "mtls_strict": (20, 7),
+        "mqtt_plain_1883": (2, 20),       # Cleartext telemetry, zero setup overhead
+        "tls_8883": (16, 16),             # Standard TLS encrypted channel
+        "mtls_strict": (20, 7),           # Dual client-server cert validation
     },
+    # 3. Network Topology
     "network_topology": {
-        "shared_home_wifi": (3, 15),
-        "isolated_vlan": (15, 8),
+        "shared_home_wifi": (3, 15),      # Connected directly to general home network
+        "isolated_vlan": (15, 8),         # Confined to dedicated IoT subnet
     },
+    # 4. Remote Access & Cloud Exposure
     "remote_exposure": {
-        "upnp_port": (2, 20),
-        "cloud_relay": (16, 17),
-        "local_lan": (20, 6),
+        "upnp_port": (2, 20),             # Router port opened automatically via UPnP
+        "cloud_relay": (16, 17),          # Routed via secure cloud broker
+        "local_lan": (20, 6),             # Accessible only while on home network
     },
+    # 5. Firmware Update Policy
     "firmware_policy": {
-        "manual_never": (2, 10),
-        "auto_nightly_patch": (10, 7),
+        "manual_never": (2, 10),          # Never updates automatically; zero reboot risk
+        "auto_nightly_patch": (10, 7),    # Automated nightly security patches
     },
+    # 6. Telemetry & Data Privacy
     "data_privacy": {
-        "full_cloud_sharing": (2, 10),
-        "anonymized_telemetry": (7, 9),
-        "local_only": (10, 5),
+        "full_cloud_sharing": (2, 10),    # Unfiltered cloud telemetry for feature enhancements
+        "anonymized_telemetry": (7, 9),   # Stripped sensor telemetry
+        "local_only": (10, 5),            # Zero data leaves the local gateway
     },
+    # 7. Action Authorization (Sensors/Relays)
     "action_auth": {
-        "one_tap_always": (2, 10),
-        "biometric_step_up": (10, 6),
+        "one_tap_always": (2, 10),        # Single tap execution without confirmation
+        "biometric_step_up": (10, 6),     # Re-verifies fingerprint/face for sensitive triggers
     },
 }
 
 
 def calculate_scores(settings: dict):
+    """
+    Computes total security and usability scores from the selected options.
+    Returns (security_score, usability_score, grade, risk_tier).
+    """
     sec_total = 0.0
     use_total = 0.0
 
@@ -146,7 +182,7 @@ def calculate_scores(settings: dict):
         sec_total += s
         use_total += u
 
-    # Determine security grade
+    # Map security score to academic grading tiers
     if sec_total >= 88:
         grade = "A"
         tier = "Hardened Zero-Trust"
@@ -164,6 +200,10 @@ def calculate_scores(settings: dict):
 
 
 def run_vulnerability_assessment(settings: dict):
+    """
+    Evaluates individual choices and generates human-readable risk warnings
+    and architectural strengths for the mobile auditor screen.
+    """
     risks = []
     strengths = []
 
@@ -212,6 +252,7 @@ def run_vulnerability_assessment(settings: dict):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def index():
+    """Service health check and API descriptor."""
     return jsonify({
         "service": "HaloGuard IoT Commissioning & Security Auditor API",
         "version": "2.0.0",
@@ -222,6 +263,11 @@ def index():
 
 @app.route("/api/auth/register", methods=["POST"])
 def api_register():
+    """
+    Registers a new participant.
+    Normalizes and hashes the email with a salt to ensure anonymity,
+    creates the initial in-progress commission session, and issues a bearer token.
+    """
     sweep_abandoned_sessions()
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
@@ -235,6 +281,7 @@ def api_register():
     email_hash = hash_identifier(email)
     existing_user = User.query.filter_by(email_hash=email_hash).first()
 
+    # Log in existing participant if credentials match
     if existing_user:
         if not existing_user.check_password(password):
             return jsonify({"success": False, "error": "Account exists with a different password."}), 409
@@ -248,6 +295,7 @@ def api_register():
             "session": existing_user.commission_session.to_dict() if existing_user.commission_session else None,
         })
 
+    # Create new user record
     new_user = User(
         email_hash=email_hash,
         created_at=utc_now(),
@@ -257,6 +305,7 @@ def api_register():
     db.session.add(new_user)
     db.session.flush()
 
+    # Initialize gateway commissioning session
     new_session = CommissionSession(
         user_id=new_user.id,
         started_at=utc_now(),
@@ -265,6 +314,7 @@ def api_register():
     )
     db.session.add(new_session)
 
+    # Log registration event
     log = InteractionLog(
         user_id=new_user.id,
         event_type="user_registered",
@@ -284,6 +334,7 @@ def api_register():
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
+    """Authenticates an existing participant and issues a fresh token."""
     sweep_abandoned_sessions()
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
@@ -311,6 +362,7 @@ def api_login():
 
 @app.route("/api/user/profile", methods=["GET"])
 def api_profile():
+    """Returns current participant profile and active commission session details."""
     user, sess = get_current_user()
     if not user:
         return jsonify({"success": False, "error": "Unauthorized"}), 401
@@ -325,7 +377,11 @@ def api_profile():
 @app.route("/api/commission/calculate", methods=["POST"])
 @app.route("/api/commission/audit", methods=["POST"])
 def api_calculate():
-    """Live preview of scores for given settings without saving."""
+    """
+    Live score preview endpoint.
+    Calculates security score, usability index, and risk warnings for the provided
+    configuration without saving to the database. Powers the live mobile gauge.
+    """
     data = request.get_json(silent=True) or {}
     settings = data.get("settings", data)
     sec_score, use_score, grade, tier = calculate_scores(settings)
@@ -351,7 +407,11 @@ def api_calculate():
 
 @app.route("/api/commission/deploy", methods=["POST"])
 def api_deploy():
-    """Finalizes commissioning, records metrics, and returns the audit certificate."""
+    """
+    Finalizes gateway commissioning.
+    Saves chosen settings, records total elapsed time, logs toggle and reversal metrics,
+    updates the session status to 'commissioned', and triggers an Excel report refresh.
+    """
     user, sess = get_current_user()
     if not user or not sess:
         return jsonify({"success": False, "error": "Unauthorized"}), 401
@@ -364,7 +424,7 @@ def api_deploy():
     sec_score, use_score, grade, tier = calculate_scores(settings)
     risks, strengths = run_vulnerability_assessment(settings)
 
-    # Save settings to session
+    # Persist the 7 chosen settings
     sess.auth_credential = settings.get("auth_credential", "default_pin")
     sess.transport_crypto = settings.get("transport_crypto", "mqtt_plain_1883")
     sess.network_topology = settings.get("network_topology", "shared_home_wifi")
@@ -378,6 +438,7 @@ def api_deploy():
     sess.security_grade = grade
     sess.risk_tier = tier
 
+    # Record interaction metrics
     sess.toggle_count = int(metrics.get("toggle_count", data.get("toggle_count", 0)))
     sess.warning_reversals = int(metrics.get("warning_reversals", data.get("warning_reversals", 0)))
 
@@ -385,12 +446,14 @@ def api_deploy():
     sess.last_active_at = now
     sess.status = "commissioned"
 
+    # Compute total task duration
     if sess.started_at:
         delta = now - ensure_utc(sess.started_at)
         sess.total_time_seconds = max(0.1, delta.total_seconds())
     else:
         sess.total_time_seconds = 0.0
 
+    # Log final commissioning event
     log = InteractionLog(
         user_id=user.id,
         event_type="gateway_commissioned",
@@ -409,12 +472,12 @@ def api_deploy():
     db.session.add(log)
     db.session.commit()
 
-    # Trigger background Excel update
+    # Automatically refresh the Excel study report in the background
     try:
         from export_results import export_database_to_excel
         export_database_to_excel()
     except Exception as e:
-        print(f"Background export note: {e}")
+        print(f"Background export update notice: {e}")
 
     return jsonify({
         "success": True,
@@ -437,6 +500,10 @@ def api_deploy():
 
 @app.route("/api/telemetry/event", methods=["POST"])
 def api_telemetry_event():
+    """
+    Ingests granular user interaction events from the mobile client
+    (e.g. setting toggled, warning banner displayed, dialog opened).
+    """
     user, sess = get_current_user()
     if not user or not sess:
         return jsonify({"status": "unauthorized"}), 401
@@ -448,6 +515,7 @@ def api_telemetry_event():
     now = utc_now()
     sess.last_active_at = now
 
+    # Check if app was backgrounded or closed while still in progress
     if event_type == "app_closed_or_backgrounded" and sess.status == "in_progress":
         sess.status = "abandoned"
         start_utc = ensure_utc(sess.started_at)
@@ -468,6 +536,10 @@ def api_telemetry_event():
 
 @app.route("/api/telemetry/heartbeat", methods=["POST"])
 def api_heartbeat():
+    """
+    Periodic keep-alive signal sent by the mobile app every 10 seconds.
+    Prevents active sessions from being swept as abandoned.
+    """
     user, sess = get_current_user()
     if not user or not sess:
         return jsonify({"status": "unauthorized"}), 401
@@ -480,6 +552,10 @@ def api_heartbeat():
 
 @app.route("/api/telemetry/abandon", methods=["POST"])
 def api_abandon():
+    """
+    Explicitly marks a session as abandoned when a participant opts out
+    or exits via the exit dialog.
+    """
     user, sess = get_current_user()
     if not user or not sess:
         return jsonify({"status": "unauthorized"}), 401
@@ -515,7 +591,10 @@ def api_abandon():
 # ---------------------------------------------------------------------------
 @app.route("/api/export/excel", methods=["GET"])
 def api_export_excel():
-    """Generates the latest Excel report on the fly and serves it as a download."""
+    """
+    Generates the latest Excel research summary on the fly and serves it as a file download.
+    Can be accessed directly in any browser without needing terminal access.
+    """
     try:
         from export_results import export_database_to_excel, DEFAULT_EXCEL_OUTPUT
         file_path = export_database_to_excel()

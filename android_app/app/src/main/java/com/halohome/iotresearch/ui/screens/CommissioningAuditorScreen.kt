@@ -27,13 +27,19 @@ import com.halohome.iotresearch.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * Commissioning Auditor Screen.
+ * Primary research interface presenting the 7 IoT gateway trade-off settings.
+ * Features sticky top gauges (Security Score vs. Convenience Index), real-time risk
+ * alert banners, and a pre-deployment diagnostic security scan.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommissioningAuditorScreen(
     onCommissionSuccess: (AuditReportDto) -> Unit,
     onAbandoned: () -> Unit
 ) {
-    // Current 7 settings (Option A factory defaults)
+    // Current 7 settings state, initialized to factory defaults (Option A)
     var authCredential by remember { mutableStateOf("default_pin") }
     var transportCrypto by remember { mutableStateOf("mqtt_plain_1883") }
     var networkTopology by remember { mutableStateOf("shared_home_wifi") }
@@ -42,7 +48,7 @@ fun CommissioningAuditorScreen(
     var dataPrivacy by remember { mutableStateOf("full_cloud_sharing") }
     var actionAuth by remember { mutableStateOf("one_tap_always") }
 
-    // Live Audit State
+    // Live Audit State (dynamically recomputed on each toggle)
     var securityScore by remember { mutableFloatStateOf(15.0f) }
     var usabilityScore by remember { mutableFloatStateOf(100.0f) }
     var grade by remember { mutableStateOf("D-") }

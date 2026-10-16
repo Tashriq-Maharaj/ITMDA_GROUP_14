@@ -10,5 +10,7 @@ android_app/local.properties
 .idea/
 *.iml
 .DS_Store
+android_app/app/proguard-rules-backups/
+*.zip
 results/*.xlsx
 !results/.gitkeep

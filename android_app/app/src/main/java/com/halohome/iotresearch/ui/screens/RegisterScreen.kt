@@ -27,6 +27,11 @@ import com.halohome.iotresearch.telemetry.MobileTelemetryManager
 import com.halohome.iotresearch.ui.theme.*
 import kotlinx.coroutines.launch
 
+/**
+ * Participant Registration Screen.
+ * Registers new research participants under the privacy-preserving zero-PII model.
+ * Automatically initializes a new commissioning session upon successful registration.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegisterScreen(
