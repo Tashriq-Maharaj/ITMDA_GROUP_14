@@ -315,9 +315,16 @@ def export_database_to_excel(output_path=None):
             col_letter = get_column_letter(col[0].column)
             ws.column_dimensions[col_letter].width = min(max(max_len + 3, 14), 60)
 
-    wb.save(target_file)
-    print(f"Report successfully saved to: {target_file}")
-    return target_file
+    try:
+        wb.save(target_file)
+        print(f"Report successfully saved to: {target_file}")
+        return target_file
+    except PermissionError:
+        # If open in Microsoft Excel, save to a fallback file so export/download succeeds
+        fallback_file = os.path.join(RESULTS_DIR, "study_results_latest.xlsx")
+        wb.save(fallback_file)
+        print(f"Target file locked; report saved to fallback: {fallback_file}")
+        return fallback_file
 
 
 if __name__ == "__main__":
