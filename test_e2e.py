@@ -84,6 +84,12 @@ def run_e2e_tests():
     assert len(res.data) > 1000, f"Excel export payload suspiciously small: {len(res.data)} bytes"
     print(f"Excel export OK: Received {len(res.data)} bytes")
 
+    print("--- 9. Testing raw database.db export endpoint ---")
+    res = client.get("/api/export/database")
+    assert res.status_code == 200, f"Database export failed: {res.status_code}"
+    assert len(res.data) > 1000, f"Database file payload suspiciously small: {len(res.data)} bytes"
+    print(f"Database export OK: Received {len(res.data)} bytes")
+
     print("\nALL END-TO-END TESTS COMPLETED SUCCESSFULLY!")
 
 if __name__ == "__main__":

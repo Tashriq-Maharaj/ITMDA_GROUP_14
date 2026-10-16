@@ -608,5 +608,25 @@ def api_export_excel():
         return jsonify({"error": f"Report generation failed: {str(e)}"}), 500
 
 
+@app.route("/api/export/database", methods=["GET"])
+@app.route("/api/export/db", methods=["GET"])
+def api_export_database():
+    """
+    Downloads the raw SQLite database file (database.db) directly.
+    For researchers and administrators via browser link.
+    """
+    try:
+        if not os.path.exists(DB_PATH):
+            return jsonify({"error": "Database file does not exist yet."}), 404
+        return send_file(
+            DB_PATH,
+            as_attachment=True,
+            download_name="database.db",
+            mimetype="application/x-sqlite3"
+        )
+    except Exception as e:
+        return jsonify({"error": f"Database download failed: {str(e)}"}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

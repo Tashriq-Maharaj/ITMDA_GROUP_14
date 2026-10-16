@@ -57,20 +57,23 @@ Once commissioning is complete, the app transitions into an operational **Smart 
 
 ---
 
-### 3. How to Download the Research Results
+### 3. How to Download the Research Results (Admin Web API)
 
-You can export the latest Excel study data at any time:
+The study data is not accessible to participants within the mobile app. Administrators and researchers can download the study files directly via browser links:
 
-* **In your web browser:** Go to:
+* **Download Excel Report (`.xlsx`):**
   ```text
   http://localhost:5000/api/export/excel
   ```
-* **Inside the Android App:** Once you deploy a device and reach the Active Hub screen, tap **"Download Research Audit (.xlsx)"**.
-* **Via terminal:** Run the export script directly:
+* **Download Raw Database (`database.db`):**
+  ```text
+  http://localhost:5000/api/export/database
+  ```
+  *(Or `http://localhost:5000/api/export/db`)*
+* **Via terminal:** Run the export script to generate `results/study_results.xlsx`:
   ```bash
   python export_results.py
   ```
-  The file is saved to `results/study_results.xlsx`.
 
 ---
 

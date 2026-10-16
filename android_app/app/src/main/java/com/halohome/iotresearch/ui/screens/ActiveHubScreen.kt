@@ -1,7 +1,5 @@
 package com.halohome.iotresearch.ui.screens
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -15,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -27,8 +24,8 @@ import com.halohome.iotresearch.ui.theme.*
 /**
  * Active Smart Home Hub Screen.
  * Operational dashboard displayed once gateway commissioning has been deployed.
- * Shows live room telemetry (~24.8°C), interactive device toggles, biometric step-up
- * authentication enforcement, and direct research report download.
+ * Shows live room telemetry (~24.8°C), interactive device toggles, and biometric step-up
+ * authentication enforcement.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +34,6 @@ fun ActiveHubScreen(
     onRecommission: () -> Unit,
     onSignOut: () -> Unit
 ) {
-    val context = LocalContext.current
     var isCoolingOn by remember { mutableStateOf(false) }
     var isLightOn by remember { mutableStateOf(true) }
     var showBiometricPrompt by remember { mutableStateOf(false) }
@@ -185,36 +181,6 @@ fun ActiveHubScreen(
                         checked = isLightOn,
                         onCheckedChange = { isLightOn = it }
                     )
-                }
-            }
-
-            // Quick Actions Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = LightBlueBg),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Research Analytics & Export", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavyPrimary)
-                    Text(
-                        "Download the publication-ready Excel spreadsheet containing this session's telemetry and trade-off metrics.",
-                        fontSize = 11.sp,
-                        color = TextSecondary
-                    )
-                    Button(
-                        onClick = {
-                            val exportUrl = "${NetworkModule.baseUrl}api/export/excel"
-                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(exportUrl))
-                            context.startActivity(browserIntent)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = BlueAccent),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Download Live Excel Report (.xlsx)")
-                    }
                 }
             }
 
