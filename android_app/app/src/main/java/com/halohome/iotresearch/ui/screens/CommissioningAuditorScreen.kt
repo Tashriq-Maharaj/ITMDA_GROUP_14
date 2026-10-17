@@ -501,8 +501,18 @@ fun CommissioningAuditorScreen(
                                         val res = NetworkModule.apiService.deployGateway(
                                             DeployRequest(settingsPayload, metricsPayload)
                                         )
-                                        if (res.isSuccessful && res.body()?.success == true) {
+                                        if (res.isSuccessful && res.body()?.success == true && res.body()?.auditReport != null) {
                                             auditReport = res.body()?.auditReport
+                                        } else {
+                                            auditReport = AuditReportDto(
+                                                participantId = NetworkModule.participantId,
+                                                securityScore = securityScore,
+                                                usabilityScore = usabilityScore,
+                                                grade = grade,
+                                                riskTier = riskTier,
+                                                toggleCount = MobileTelemetryManager.toggleCount,
+                                                warningReversals = MobileTelemetryManager.warningReversals
+                                            )
                                         }
                                     } catch (e: Exception) {
                                         auditReport = AuditReportDto(
@@ -538,7 +548,9 @@ fun CommissioningAuditorScreen(
     // PENETRATION SCAN & COMMISSIONING CERTIFICATE DIALOG
     if (showScanDialog) {
         AlertDialog(
-            onDismissRequest = { /* Prevent dismiss while scanning */ },
+            onDismissRequest = {
+                if (!isDeploying) showScanDialog = false
+            },
             title = {
                 Text(
                     text = if (isDeploying) "Security Audit in Progress" else "Commissioning Certificate",
@@ -558,52 +570,68 @@ fun CommissioningAuditorScreen(
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                     }
                 } else {
-                    auditReport?.let { report ->
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = SlateBackground),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Audit Grade", fontSize = 12.sp, color = TextSecondary)
-                                        BadgeGrade(report.grade)
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Security Health", fontSize = 12.sp, color = TextSecondary)
-                                        Text("${report.securityScore.toInt()}%", fontWeight = FontWeight.Bold, color = getScoreColor(report.securityScore))
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Convenience Index", fontSize = 12.sp, color = TextSecondary)
-                                        Text("${report.usabilityScore.toInt()}%", fontWeight = FontWeight.Bold, color = BlueAccent)
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Posture Classification", fontSize = 12.sp, color = TextSecondary)
-                                        Text(report.riskTier, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
+                    val report = auditReport ?: AuditReportDto(
+                        participantId = NetworkModule.participantId,
+                        securityScore = securityScore,
+                        usabilityScore = usabilityScore,
+                        grade = grade,
+                        riskTier = riskTier,
+                        toggleCount = MobileTelemetryManager.toggleCount,
+                        warningReversals = MobileTelemetryManager.warningReversals
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SlateBackground),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Audit Grade", fontSize = 12.sp, color = TextSecondary)
+                                    BadgeGrade(report.grade)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Security Health", fontSize = 12.sp, color = TextSecondary)
+                                    Text("${report.securityScore.toInt()}%", fontWeight = FontWeight.Bold, color = getScoreColor(report.securityScore))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Convenience Index", fontSize = 12.sp, color = TextSecondary)
+                                    Text("${report.usabilityScore.toInt()}%", fontWeight = FontWeight.Bold, color = BlueAccent)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Posture Classification", fontSize = 12.sp, color = TextSecondary)
+                                    Text(report.riskTier, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
+                        }
 
-                            if (report.risks.isNotEmpty()) {
-                                Text("Identified Residual Risks:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DangerRed)
-                                report.risks.forEach { r ->
-                                    Text("• ${r.name}: ${r.desc}", fontSize = 11.sp, color = TextSecondary)
-                                }
-                            } else {
-                                Text("Zero high-severity vulnerabilities detected.", fontSize = 12.sp, color = SuccessGreen)
+                        if (report.risks.isNotEmpty()) {
+                            Text("Identified Residual Risks:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DangerRed)
+                            report.risks.forEach { r ->
+                                Text("• ${r.name}: ${r.desc}", fontSize = 11.sp, color = TextSecondary)
                             }
+                        } else {
+                            Text("Zero high-severity vulnerabilities detected.", fontSize = 12.sp, color = SuccessGreen)
                         }
                     }
                 }
             },
             confirmButton = {
-                if (!isDeploying && auditReport != null) {
+                if (!isDeploying) {
+                    val reportToPass = auditReport ?: AuditReportDto(
+                        participantId = NetworkModule.participantId,
+                        securityScore = securityScore,
+                        usabilityScore = usabilityScore,
+                        grade = grade,
+                        riskTier = riskTier,
+                        toggleCount = MobileTelemetryManager.toggleCount,
+                        warningReversals = MobileTelemetryManager.warningReversals
+                    )
                     Button(
                         onClick = {
                             showScanDialog = false
                             NetworkModule.isCommissioned = true
-                            onCommissionSuccess(auditReport!!)
+                            onCommissionSuccess(reportToPass)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
                         shape = RoundedCornerShape(8.dp)

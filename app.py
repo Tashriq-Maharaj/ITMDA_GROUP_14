@@ -532,18 +532,22 @@ def api_abandon():
 @app.route("/api/export/excel", methods=["GET"])
 def api_export_excel():
     """
-    Generates the latest Excel research summary on the fly and serves it as a file download.
-    Can be accessed directly in any browser without needing terminal access.
+    Generates the latest Excel research summary on the fly and serves it as an in-memory download.
+    Accessible directly via browser link.
     """
     try:
-        from export_results import export_database_to_excel, DEFAULT_EXCEL_OUTPUT
-        file_path = export_database_to_excel()
-        return send_file(
-            file_path,
+        from export_results import generate_excel_report_bytes
+        buffer = generate_excel_report_bytes(DB_PATH)
+        response = send_file(
+            buffer,
             as_attachment=True,
             download_name="IoT_Usability_Security_Study_Results.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
     except Exception as e:
         return jsonify({"error": f"Report generation failed: {str(e)}"}), 500
 
@@ -553,17 +557,35 @@ def api_export_excel():
 def api_export_database():
     """
     Downloads the raw SQLite database file (database.db) directly.
-    For researchers and administrators via browser link.
+    Forces a WAL checkpoint and creates a clean standalone backup copy so all recent
+    participant records are guaranteed to be fully consolidated.
     """
     try:
         if not os.path.exists(DB_PATH):
             return jsonify({"error": "Database file does not exist yet."}), 404
-        return send_file(
-            DB_PATH,
+
+        import sqlite3
+        import tempfile
+        import time
+
+        temp_db = os.path.join(tempfile.gettempdir(), f"export_{int(time.time() * 1000)}.db")
+        source_conn = sqlite3.connect(DB_PATH)
+        source_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        dest_conn = sqlite3.connect(temp_db)
+        source_conn.backup(dest_conn)
+        dest_conn.close()
+        source_conn.close()
+
+        response = send_file(
+            temp_db,
             as_attachment=True,
             download_name="database.db",
             mimetype="application/x-sqlite3"
         )
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
     except Exception as e:
         return jsonify({"error": f"Database download failed: {str(e)}"}), 500
 

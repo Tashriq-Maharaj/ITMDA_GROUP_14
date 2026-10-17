@@ -61,31 +61,32 @@ def build_kpi_summary(sessions_df, users_df):
     - Mean task duration, toggle adjustments, and warning reversal nudges
     """
     metrics = []
-    total_u = len(users_df)
-    comp = sessions_df[sessions_df["status"] == "commissioned"] if not sessions_df.empty else pd.DataFrame()
+    total_u = len(users_df) if not users_df.empty else 0
+    comp = sessions_df[sessions_df["status"] == "commissioned"] if not sessions_df.empty and "status" in sessions_df.columns else pd.DataFrame()
     metrics.append(("Total Registered Participants", total_u))
     metrics.append(("Commissioned Devices (Completed)", len(comp)))
     comp_rate = (len(comp) / total_u * 100) if total_u else 0.0
     metrics.append(("Completion Rate (%)", f"{comp_rate:.1f}%"))
 
-    avg_sec = comp["final_security_score"].mean() if not comp.empty else 0.0
-    avg_use = comp["final_usability_score"].mean() if not comp.empty else 0.0
+    avg_sec = comp["final_security_score"].mean() if not comp.empty and "final_security_score" in comp.columns else 0.0
+    avg_use = comp["final_usability_score"].mean() if not comp.empty and "final_usability_score" in comp.columns else 0.0
     metrics.append(("Mean Security Health Score (0-100)", f"{avg_sec:.1f}%"))
     metrics.append(("Mean Usability / Convenience Index (0-100)", f"{avg_use:.1f}%"))
 
-    # Security grade breakdown
-    grade_a = len(comp[comp["security_grade"] == "A"])
-    grade_b = len(comp[comp["security_grade"] == "B"])
-    grade_c = len(comp[comp["security_grade"] == "C"])
-    grade_d = len(comp[comp["security_grade"] == "D"])
-    metrics.append(("Grade A (Hardened Zero-Trust)", f"{grade_a} ({grade_a/len(comp)*100:.1f}%)" if len(comp) else "0"))
-    metrics.append(("Grade B (Balanced Consumer)", f"{grade_b} ({grade_b/len(comp)*100:.1f}%)" if len(comp) else "0"))
-    metrics.append(("Grade C/D (High Vulnerability / Low Security)", f"{grade_c+grade_d} ({(grade_c+grade_d)/len(comp)*100:.1f}%)" if len(comp) else "0"))
+    # Security grade breakdown (safe against empty dataframe or missing column)
+    grade_a = len(comp[comp["security_grade"] == "A"]) if not comp.empty and "security_grade" in comp.columns else 0
+    grade_b = len(comp[comp["security_grade"] == "B"]) if not comp.empty and "security_grade" in comp.columns else 0
+    grade_c = len(comp[comp["security_grade"] == "C"]) if not comp.empty and "security_grade" in comp.columns else 0
+    grade_d = len(comp[comp["security_grade"] == "D"]) if not comp.empty and "security_grade" in comp.columns else 0
+    comp_len = len(comp)
+    metrics.append(("Grade A (Hardened Zero-Trust)", f"{grade_a} ({grade_a/comp_len*100:.1f}%)" if comp_len else "0"))
+    metrics.append(("Grade B (Balanced Consumer)", f"{grade_b} ({grade_b/comp_len*100:.1f}%)" if comp_len else "0"))
+    metrics.append(("Grade C/D (High Vulnerability / Low Security)", f"{grade_c+grade_d} ({(grade_c+grade_d)/comp_len*100:.1f}%)" if comp_len else "0"))
 
     # Task duration and interaction metrics
-    avg_dur = comp["total_time_seconds"].mean() if not comp.empty else 0.0
-    avg_toggles = comp["toggle_count"].mean() if not comp.empty else 0.0
-    avg_reversals = comp["warning_reversals"].mean() if not comp.empty else 0.0
+    avg_dur = comp["total_time_seconds"].mean() if not comp.empty and "total_time_seconds" in comp.columns else 0.0
+    avg_toggles = comp["toggle_count"].mean() if not comp.empty and "toggle_count" in comp.columns else 0.0
+    avg_reversals = comp["warning_reversals"].mean() if not comp.empty and "warning_reversals" in comp.columns else 0.0
 
     metrics.append(("Average Configuration Time", format_duration(avg_dur)))
     metrics.append(("Average Settings Adjusted (Toggles Flipped)", f"{avg_toggles:.1f}"))
@@ -97,7 +98,7 @@ def build_kpi_summary(sessions_df, users_df):
 def load_database_data(db_path, local_tz, offset_label):
     """Connects to SQLite, reads data tables into DataFrames, and converts timestamps."""
     if not os.path.exists(db_path):
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), build_kpi_summary(pd.DataFrame(), pd.DataFrame())
 
     conn = sqlite3.connect(db_path)
 
@@ -114,6 +115,13 @@ def load_database_data(db_path, local_tz, offset_label):
         conn
     )
     conn.close()
+
+    # Normalize historical statuses and filter out legacy abandonment logs
+    if not sessions_df.empty and "status" in sessions_df.columns:
+        sessions_df["status"] = sessions_df["status"].replace({"abandoned": "in_progress"})
+
+    if not logs_df.empty and "event_type" in logs_df.columns:
+        logs_df = logs_df[logs_df["event_type"] != "session_abandoned"]
 
     kpi_df = build_kpi_summary(sessions_df, users_df)
 
@@ -137,13 +145,10 @@ def load_database_data(db_path, local_tz, offset_label):
     return users_df, sessions_df, logs_df, kpi_df
 
 
-def export_database_to_excel(output_path=None):
-    """Generates the multi-tab formatted Excel report."""
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+def generate_excel_workbook(db_path=DB_PATH):
+    """Builds and returns the styled openpyxl Workbook from database data."""
     local_tz, tz_name, offset_label = get_local_tz_info()
-    target_file = output_path or DEFAULT_EXCEL_OUTPUT
-
-    users_df, sessions_df, logs_df, kpi_df = load_database_data(DB_PATH, local_tz, offset_label)
+    users_df, sessions_df, logs_df, kpi_df = load_database_data(db_path, local_tz, offset_label)
 
     wb = openpyxl.Workbook()
 
@@ -235,10 +240,11 @@ def export_database_to_excel(output_path=None):
 
     if not sessions_df.empty:
         for _, s in sessions_df.iterrows():
+            status_val = "Commissioned" if str(s.get("status", "")).lower() == "commissioned" else "In Progress"
             ws_audits.append([
                 s.get("id"),
                 f"P-{s.get('user_id', 1):03d}",
-                s.get("status"),
+                status_val,
                 s.get("final_security_score"),
                 s.get("final_usability_score"),
                 s.get("security_grade"),
@@ -311,6 +317,24 @@ def export_database_to_excel(output_path=None):
             col_letter = get_column_letter(col[0].column)
             ws.column_dimensions[col_letter].width = min(max(max_len + 3, 14), 60)
 
+    return wb
+
+
+def generate_excel_report_bytes(db_path=DB_PATH):
+    """Builds the Excel report directly into an in-memory BytesIO buffer."""
+    import io
+    wb = generate_excel_workbook(db_path)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def export_database_to_excel(output_path=None, db_path=DB_PATH):
+    """Generates the multi-tab formatted Excel report and saves it to disk."""
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    target_file = output_path or DEFAULT_EXCEL_OUTPUT
+    wb = generate_excel_workbook(db_path)
     try:
         wb.save(target_file)
         print(f"Report successfully saved to: {target_file}")
