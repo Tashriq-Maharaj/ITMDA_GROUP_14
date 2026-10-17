@@ -69,6 +69,8 @@ fun CommissioningAuditorScreen(
     var scanProgress by remember { mutableIntStateOf(0) }
     var showScanDialog by remember { mutableStateOf(false) }
     var auditReport by remember { mutableStateOf<AuditReportDto?>(null) }
+    var deployError by remember { mutableStateOf<String?>(null) }
+    var sessionExpired by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
@@ -497,33 +499,25 @@ fun CommissioningAuditorScreen(
                                         warningReversals = MobileTelemetryManager.warningReversals
                                     )
 
+                                    auditReport = null
+                                    deployError = null
+                                    sessionExpired = false
+
                                     try {
                                         val res = NetworkModule.apiService.deployGateway(
                                             DeployRequest(settingsPayload, metricsPayload)
                                         )
-                                        if (res.isSuccessful && res.body()?.success == true && res.body()?.auditReport != null) {
-                                            auditReport = res.body()?.auditReport
+                                        val report = res.body()?.auditReport
+                                        if (res.isSuccessful && res.body()?.success == true && report != null) {
+                                            auditReport = report
+                                        } else if (res.code() == 401) {
+                                            sessionExpired = true
+                                            deployError = "Your session is no longer valid on the server. Please sign in again and redo the setup."
                                         } else {
-                                            auditReport = AuditReportDto(
-                                                participantId = NetworkModule.participantId,
-                                                securityScore = securityScore,
-                                                usabilityScore = usabilityScore,
-                                                grade = grade,
-                                                riskTier = riskTier,
-                                                toggleCount = MobileTelemetryManager.toggleCount,
-                                                warningReversals = MobileTelemetryManager.warningReversals
-                                            )
+                                            deployError = "The server could not record your setup (error ${res.code()}). Please try again."
                                         }
                                     } catch (e: Exception) {
-                                        auditReport = AuditReportDto(
-                                            participantId = NetworkModule.participantId,
-                                            securityScore = securityScore,
-                                            usabilityScore = usabilityScore,
-                                            grade = grade,
-                                            riskTier = riskTier,
-                                            toggleCount = MobileTelemetryManager.toggleCount,
-                                            warningReversals = MobileTelemetryManager.warningReversals
-                                        )
+                                        deployError = "Could not reach the server. Check your connection and try again."
                                     } finally {
                                         isDeploying = false
                                     }
@@ -553,12 +547,18 @@ fun CommissioningAuditorScreen(
             },
             title = {
                 Text(
-                    text = if (isDeploying) "Security Audit in Progress" else "Commissioning Certificate",
+                    text = when {
+                        isDeploying -> "Security Audit in Progress"
+                        auditReport != null -> "Commissioning Certificate"
+                        sessionExpired -> "Session Expired"
+                        else -> "Deployment Failed"
+                    },
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp
                 )
             },
             text = {
+                val report = auditReport
                 if (isDeploying) {
                     Column(
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -569,16 +569,7 @@ fun CommissioningAuditorScreen(
                         ScanRow("Evaluating Subnet Isolation...", scanProgress >= 3)
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                     }
-                } else {
-                    val report = auditReport ?: AuditReportDto(
-                        participantId = NetworkModule.participantId,
-                        securityScore = securityScore,
-                        usabilityScore = usabilityScore,
-                        grade = grade,
-                        riskTier = riskTier,
-                        toggleCount = MobileTelemetryManager.toggleCount,
-                        warningReversals = MobileTelemetryManager.warningReversals
-                    )
+                } else if (report != null) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SlateBackground),
@@ -614,29 +605,49 @@ fun CommissioningAuditorScreen(
                             Text("Zero high-severity vulnerabilities detected.", fontSize = 12.sp, color = SuccessGreen)
                         }
                     }
+                } else {
+                    Text(
+                        text = deployError ?: "Something went wrong while deploying.",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
                 }
             },
             confirmButton = {
+                val report = auditReport
                 if (!isDeploying) {
-                    val reportToPass = auditReport ?: AuditReportDto(
-                        participantId = NetworkModule.participantId,
-                        securityScore = securityScore,
-                        usabilityScore = usabilityScore,
-                        grade = grade,
-                        riskTier = riskTier,
-                        toggleCount = MobileTelemetryManager.toggleCount,
-                        warningReversals = MobileTelemetryManager.warningReversals
-                    )
-                    Button(
-                        onClick = {
-                            showScanDialog = false
-                            NetworkModule.isCommissioned = true
-                            onCommissionSuccess(reportToPass)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Open Active Hub Dashboard")
+                    if (report != null) {
+                        Button(
+                            onClick = {
+                                showScanDialog = false
+                                NetworkModule.isCommissioned = true
+                                onCommissionSuccess(report)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Open Active Hub Dashboard")
+                        }
+                    } else if (sessionExpired) {
+                        Button(
+                            onClick = {
+                                showScanDialog = false
+                                NetworkModule.clearSession()
+                                onLogOut()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = BlueAccent),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Sign In Again")
+                        }
+                    } else {
+                        Button(
+                            onClick = { showScanDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = BlueAccent),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Back to Settings")
+                        }
                     }
                 }
             }
