@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.halohome.iotresearch.data.api.NetworkModule
 import com.halohome.iotresearch.data.models.AuditReportDto
+import com.halohome.iotresearch.telemetry.MobileTelemetryManager
 import com.halohome.iotresearch.ui.screens.*
 
 sealed class Screen(val route: String) {
