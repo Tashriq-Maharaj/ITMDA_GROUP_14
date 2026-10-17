@@ -23,7 +23,7 @@ fun AppNavigation(
     var latestAuditReport by remember { mutableStateOf<AuditReportDto?>(null) }
 
     val startDestination = if (NetworkModule.authToken != null) {
-        Screen.Commissioning.route
+        if (NetworkModule.isCommissioned) Screen.ActiveHub.route else Screen.Commissioning.route
     } else {
         Screen.Login.route
     }
@@ -37,8 +37,9 @@ fun AppNavigation(
                 onNavigateToRegister = {
                     navController.navigate(Screen.Register.route)
                 },
-                onLoginSuccess = {
-                    navController.navigate(Screen.Commissioning.route) {
+                onLoginSuccess = { isCommissioned ->
+                    val destination = if (isCommissioned) Screen.ActiveHub.route else Screen.Commissioning.route
+                    navController.navigate(destination) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
                 }
@@ -50,8 +51,9 @@ fun AppNavigation(
                 onNavigateToLogin = {
                     navController.popBackStack()
                 },
-                onRegisterSuccess = {
-                    navController.navigate(Screen.Commissioning.route) {
+                onRegisterSuccess = { isCommissioned ->
+                    val destination = if (isCommissioned) Screen.ActiveHub.route else Screen.Commissioning.route
+                    navController.navigate(destination) {
                         popUpTo(Screen.Register.route) { inclusive = true }
                     }
                 }
@@ -62,13 +64,14 @@ fun AppNavigation(
             CommissioningAuditorScreen(
                 onCommissionSuccess = { report ->
                     latestAuditReport = report
+                    NetworkModule.isCommissioned = true
                     navController.navigate(Screen.ActiveHub.route) {
                         popUpTo(Screen.Commissioning.route) { inclusive = true }
                     }
                 },
-                onAbandoned = {
+                onLogOut = {
                     navController.navigate(Screen.Login.route) {
-                        popUpTo(Screen.Commissioning.route) { inclusive = true }
+                        popUpTo(0) { inclusive = true }
                     }
                 }
             )
@@ -81,9 +84,11 @@ fun AppNavigation(
                     navController.navigate(Screen.Commissioning.route)
                 },
                 onSignOut = {
-                    NetworkModule.clearSession()
-                    navController.navigate(Screen.Login.route) {
-                        popUpTo(Screen.ActiveHub.route) { inclusive = true }
+                    MobileTelemetryManager.logLogout {
+                        NetworkModule.clearSession()
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
                     }
                 }
             )

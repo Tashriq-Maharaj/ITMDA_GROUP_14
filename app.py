@@ -24,9 +24,6 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
-# Sessions inactive for more than 2 minutes without a heartbeat are marked abandoned
-ABANDONMENT_TIMEOUT_MINUTES = 2
-
 
 # ---------------------------------------------------------------------------
 # CORS & PRE-FLIGHT HEADERS
@@ -63,43 +60,6 @@ def ensure_utc(dt):
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def sweep_abandoned_sessions(timeout_minutes=ABANDONMENT_TIMEOUT_MINUTES):
-    """
-    Scans in-progress sessions and marks them abandoned if no heartbeat
-    has been received within the timeout window. Calculates final dwell time.
-    """
-    now = utc_now()
-    threshold = now - timedelta(minutes=timeout_minutes)
-
-    stale = CommissionSession.query.filter(
-        CommissionSession.status == "in_progress",
-        CommissionSession.last_active_at < threshold,
-    ).all()
-
-    for sess in stale:
-        sess.status = "abandoned"
-        start_utc = ensure_utc(sess.started_at)
-        last_utc = ensure_utc(sess.last_active_at)
-        if start_utc and last_utc:
-            sess.total_time_seconds = max(0.1, (last_utc - start_utc).total_seconds())
-
-        log = InteractionLog(
-            user_id=sess.user_id,
-            event_type="session_abandoned",
-            event_details={
-                "reason": "inactivity_timeout",
-                "timeout_minutes": timeout_minutes,
-                "time_spent_seconds": sess.total_time_seconds,
-            },
-            timestamp=now,
-        )
-        db.session.add(log)
-
-    if stale:
-        db.session.commit()
-    return len(stale)
 
 
 def get_current_user():
@@ -268,7 +228,6 @@ def api_register():
     Normalizes and hashes the email with a salt to ensure anonymity,
     creates the initial in-progress commission session, and issues a bearer token.
     """
-    sweep_abandoned_sessions()
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
     password = data.get("password", "").strip()
@@ -335,7 +294,6 @@ def api_register():
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
     """Authenticates an existing participant and issues a fresh token."""
-    sweep_abandoned_sessions()
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip().lower()
     password = data.get("password", "").strip()
@@ -515,13 +473,6 @@ def api_telemetry_event():
     now = utc_now()
     sess.last_active_at = now
 
-    # Check if app was backgrounded or closed while still in progress
-    if event_type == "app_closed_or_backgrounded" and sess.status == "in_progress":
-        sess.status = "abandoned"
-        start_utc = ensure_utc(sess.started_at)
-        if start_utc:
-            sess.total_time_seconds = max(0.1, (now - start_utc).total_seconds())
-
     log = InteractionLog(
         user_id=user.id,
         event_type=str(event_type)[:50],
@@ -536,10 +487,7 @@ def api_telemetry_event():
 
 @app.route("/api/telemetry/heartbeat", methods=["POST"])
 def api_heartbeat():
-    """
-    Periodic keep-alive signal sent by the mobile app every 10 seconds.
-    Prevents active sessions from being swept as abandoned.
-    """
+    """Periodic keep-alive signal sent by the mobile app."""
     user, sess = get_current_user()
     if not user or not sess:
         return jsonify({"status": "unauthorized"}), 401
@@ -550,40 +498,32 @@ def api_heartbeat():
     return jsonify({"status": "ok", "last_active_at": now.isoformat()})
 
 
-@app.route("/api/telemetry/abandon", methods=["POST"])
-def api_abandon():
-    """
-    Explicitly marks a session as abandoned when a participant opts out
-    or exits via the exit dialog.
-    """
+@app.route("/api/auth/logout", methods=["POST"])
+def api_logout():
+    """Logs out the participant and records the event in the telemetry audit trail."""
     user, sess = get_current_user()
-    if not user or not sess:
-        return jsonify({"status": "unauthorized"}), 401
+    if not user:
+        return jsonify({"success": True, "message": "Logged out"}), 200
 
     now = utc_now()
-    data = request.get_json(silent=True) or {}
-    reason = data.get("reason", "voluntary_exit")
-
-    if sess.status == "in_progress":
-        sess.status = "abandoned"
+    if sess:
         sess.last_active_at = now
-        start_utc = ensure_utc(sess.started_at)
-        if start_utc:
-            sess.total_time_seconds = max(0.1, (now - start_utc).total_seconds())
 
-        log = InteractionLog(
-            user_id=user.id,
-            event_type="session_abandoned",
-            event_details={
-                "reason": reason,
-                "time_spent_seconds": sess.total_time_seconds,
-            },
-            timestamp=now,
-        )
-        db.session.add(log)
-        db.session.commit()
+    log = InteractionLog(
+        user_id=user.id,
+        event_type="user_logged_out",
+        event_details={},
+        timestamp=now,
+    )
+    db.session.add(log)
+    db.session.commit()
+    return jsonify({"success": True, "message": "Logged out successfully"}), 200
 
-    return jsonify({"status": "abandoned"})
+
+@app.route("/api/telemetry/abandon", methods=["POST"])
+def api_abandon():
+    """Legacy alias preserved for backwards compatibility."""
+    return api_logout()
 
 
 # ---------------------------------------------------------------------------

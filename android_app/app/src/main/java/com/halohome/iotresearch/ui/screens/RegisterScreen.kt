@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RegisterScreen(
     onNavigateToLogin: () -> Unit,
-    onRegisterSuccess: () -> Unit
+    onRegisterSuccess: (isCommissioned: Boolean) -> Unit
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -167,10 +167,12 @@ fun RegisterScreen(
                                         NetworkModule.authToken = body.token
                                         NetworkModule.userId = body.user?.id ?: -1
                                         NetworkModule.participantId = body.user?.participantId ?: "P-001"
+                                        val isCommissioned = (body.session?.get("status") as? String) == "commissioned"
+                                        NetworkModule.isCommissioned = isCommissioned
 
                                         MobileTelemetryManager.startHeartbeat()
                                         MobileTelemetryManager.logEvent("user_registered")
-                                        onRegisterSuccess()
+                                        onRegisterSuccess(isCommissioned)
                                     } else {
                                         errorMessage = res.body()?.error ?: "Registration failed."
                                     }

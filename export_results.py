@@ -55,20 +55,16 @@ def parse_and_convert_dates(series, local_tz):
 def build_kpi_summary(sessions_df, users_df):
     """
     Computes aggregate metrics across the participant cohort:
-    - Total participants, completion vs abandonment rates
+    - Total participants, completion rate
     - Average security score vs average convenience index
     - Grade distributions (A, B, C, D)
     - Mean task duration, toggle adjustments, and warning reversal nudges
     """
     metrics = []
     total_u = len(users_df)
-    comp = sessions_df[sessions_df["status"] == "commissioned"]
-    aban = sessions_df[sessions_df["status"] == "abandoned"]
-
+    comp = sessions_df[sessions_df["status"] == "commissioned"] if not sessions_df.empty else pd.DataFrame()
     metrics.append(("Total Registered Participants", total_u))
     metrics.append(("Commissioned Devices (Completed)", len(comp)))
-    metrics.append(("Abandoned Sessions", len(aban)))
-
     comp_rate = (len(comp) / total_u * 100) if total_u else 0.0
     metrics.append(("Completion Rate (%)", f"{comp_rate:.1f}%"))
 

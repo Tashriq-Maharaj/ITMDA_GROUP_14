@@ -42,7 +42,11 @@ interface ApiService {
     @POST("api/telemetry/heartbeat")
     suspend fun sendHeartbeat(): Response<Map<String, Any>>
 
-    /** Records voluntary session abandonment if the user chooses to exit. */
+    /** Logs out the participant from the research session. */
+    @POST("api/auth/logout")
+    suspend fun logout(): Response<Map<String, Any>>
+
+    /** Legacy alias for session logout. */
     @POST("api/telemetry/abandon")
-    suspend fun abandonSession(@Body request: Map<String, String>): Response<Map<String, Any>>
+    suspend fun abandonSession(@Body request: Map<String, String> = emptyMap()): Response<Map<String, Any>>
 }

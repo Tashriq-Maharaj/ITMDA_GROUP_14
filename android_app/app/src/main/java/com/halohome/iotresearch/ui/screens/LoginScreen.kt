@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun LoginScreen(
     onNavigateToRegister: () -> Unit,
-    onLoginSuccess: () -> Unit
+    onLoginSuccess: (isCommissioned: Boolean) -> Unit
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -143,10 +143,12 @@ fun LoginScreen(
                                         NetworkModule.authToken = body.token
                                         NetworkModule.userId = body.user?.id ?: -1
                                         NetworkModule.participantId = body.user?.participantId ?: "P-001"
+                                        val isCommissioned = (body.session?.get("status") as? String) == "commissioned"
+                                        NetworkModule.isCommissioned = isCommissioned
 
                                         MobileTelemetryManager.startHeartbeat()
                                         MobileTelemetryManager.logEvent("user_signed_in")
-                                        onLoginSuccess()
+                                        onLoginSuccess(isCommissioned)
                                     } else {
                                         errorMessage = res.body()?.error ?: "Invalid email or password."
                                     }

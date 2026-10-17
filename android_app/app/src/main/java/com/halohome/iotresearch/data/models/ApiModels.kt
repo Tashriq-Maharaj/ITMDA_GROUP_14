@@ -18,7 +18,8 @@ data class AuthResponse(
     val message: String? = null,
     val error: String? = null,
     val token: String? = null,
-    val user: UserDto? = null
+    val user: UserDto? = null,
+    val session: Map<String, Any?>? = null
 )
 
 data class UserDto(

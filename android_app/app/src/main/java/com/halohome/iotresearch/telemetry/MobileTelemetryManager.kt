@@ -30,7 +30,7 @@ object MobileTelemetryManager {
 
     /**
      * Starts a coroutine that pings the server every 10 seconds.
-     * Keeps the active session alive and prevents inactivity auto-abandonment.
+     * Keeps the active session alive during commissioning.
      */
     fun startHeartbeat() {
         stopHeartbeat()
@@ -101,13 +101,13 @@ object MobileTelemetryManager {
         }
     }
 
-    /** Sends explicit abandonment signal to the server when the user cancels setup. */
-    fun markAbandonment(reason: String = "voluntary_exit", onComplete: () -> Unit = {}) {
+    /** Logs out the participant and cleans up background telemetry tasks. */
+    fun logLogout(onComplete: () -> Unit = {}) {
         scope.launch {
             try {
-                NetworkModule.apiService.abandonSession(mapOf("reason" to reason))
+                NetworkModule.apiService.logout()
             } catch (e: Exception) {
-                Log.w(TAG, "Abandon failed: ${e.message}")
+                Log.w(TAG, "Logout request failed: ${e.message}")
             } finally {
                 stopHeartbeat()
                 withContext(Dispatchers.Main) {
@@ -115,5 +115,10 @@ object MobileTelemetryManager {
                 }
             }
         }
+    }
+
+    /** Compatibility alias for logout. */
+    fun markAbandonment(reason: String = "voluntary_exit", onComplete: () -> Unit = {}) {
+        logLogout(onComplete)
     }
 }

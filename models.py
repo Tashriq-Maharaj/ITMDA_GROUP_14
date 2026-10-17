@@ -148,7 +148,7 @@ class CommissionSession(db.Model):
 class InteractionLog(db.Model):
     """
     Append-only telemetry event log.
-    Captures user interactions, setting adjustments, warnings displayed, and abandonment events.
+    Captures user interactions, setting adjustments, warnings displayed, and authentication events.
     """
     __tablename__ = "interaction_logs"
 

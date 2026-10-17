@@ -23,6 +23,7 @@ object NetworkModule {
     private const val KEY_AUTH_TOKEN = "auth_token"
     private const val KEY_USER_ID = "user_id"
     private const val KEY_PARTICIPANT_ID = "participant_id"
+    private const val KEY_IS_COMMISSIONED = "is_commissioned"
 
     // Default loopback for Android Studio emulator. Can be changed via the in-app settings dialog.
     const val DEFAULT_BASE_URL = "http://10.0.2.2:5000/"
@@ -61,12 +62,18 @@ object NetworkModule {
         get() = prefs.getString(KEY_PARTICIPANT_ID, "P-001") ?: "P-001"
         set(value) = prefs.edit().putString(KEY_PARTICIPANT_ID, value).apply()
 
-    /** Clears session credentials upon logout or abandonment. */
+    /** Whether the user has successfully commissioned their gateway. */
+    var isCommissioned: Boolean
+        get() = prefs.getBoolean(KEY_IS_COMMISSIONED, false)
+        set(value) = prefs.edit().putBoolean(KEY_IS_COMMISSIONED, value).apply()
+
+    /** Clears session credentials upon logout. */
     fun clearSession() {
         prefs.edit()
             .remove(KEY_AUTH_TOKEN)
             .remove(KEY_USER_ID)
             .remove(KEY_PARTICIPANT_ID)
+            .remove(KEY_IS_COMMISSIONED)
             .apply()
     }
 

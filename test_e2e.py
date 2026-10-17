@@ -90,6 +90,13 @@ def run_e2e_tests():
     assert len(res.data) > 1000, f"Database file payload suspiciously small: {len(res.data)} bytes"
     print(f"Database export OK: Received {len(res.data)} bytes")
 
+    print("--- 10. Testing logout endpoint ---")
+    res = client.post("/api/auth/logout", headers=headers)
+    assert res.status_code == 200, f"Logout failed: {res.data}"
+    logout_data = json.loads(res.data)
+    assert logout_data["success"] is True
+    print("Logout OK")
+
     print("\nALL END-TO-END TESTS COMPLETED SUCCESSFULLY!")
 
 if __name__ == "__main__":

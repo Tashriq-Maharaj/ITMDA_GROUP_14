@@ -14,7 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,7 +44,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun CommissioningAuditorScreen(
     onCommissionSuccess: (AuditReportDto) -> Unit,
-    onAbandoned: () -> Unit
+    onLogOut: () -> Unit
 ) {
     // Current 7 settings state, initialized to factory defaults (Option A)
     var authCredential by remember { mutableStateOf("default_pin") }
@@ -69,7 +69,7 @@ fun CommissioningAuditorScreen(
     var scanProgress by remember { mutableIntStateOf(0) }
     var showScanDialog by remember { mutableStateOf(false) }
     var auditReport by remember { mutableStateOf<AuditReportDto?>(null) }
-    var showExitDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
@@ -143,8 +143,12 @@ fun CommissioningAuditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showExitDialog = true }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Exit Study", tint = DangerRed)
+                    IconButton(onClick = { showLogoutDialog = true }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = "Log Out",
+                            tint = TextSecondary
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = SlateBackground)
@@ -598,6 +602,7 @@ fun CommissioningAuditorScreen(
                     Button(
                         onClick = {
                             showScanDialog = false
+                            NetworkModule.isCommissioned = true
                             onCommissionSuccess(auditReport!!)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
@@ -610,24 +615,29 @@ fun CommissioningAuditorScreen(
         )
     }
 
-    // EXIT STUDY CONFIRMATION DIALOG
-    if (showExitDialog) {
+    // LOG OUT CONFIRMATION DIALOG
+    if (showLogoutDialog) {
         AlertDialog(
-            onDismissRequest = { showExitDialog = false },
-            title = { Text("Exit Study Session?") },
-            text = { Text("Leaving mid-session records an abandonment event in the study database.") },
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Log Out?", fontWeight = FontWeight.SemiBold) },
+            text = { Text("Are you sure you want to log out of your session? You can sign back in at any time.", color = TextSecondary) },
             confirmButton = {
-                TextButton(onClick = {
-                    showExitDialog = false
-                    MobileTelemetryManager.markAbandonment("voluntary_exit") {
-                        onAbandoned()
-                    }
-                }) {
-                    Text("Exit", color = DangerRed)
+                Button(
+                    onClick = {
+                        showLogoutDialog = false
+                        MobileTelemetryManager.logLogout {
+                            NetworkModule.clearSession()
+                            onLogOut()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BlueAccent),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Log Out")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showExitDialog = false }) {
+                TextButton(onClick = { showLogoutDialog = false }) {
                     Text("Cancel")
                 }
             }
